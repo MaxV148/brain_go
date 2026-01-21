@@ -73,6 +73,55 @@ func TestVectorize(t *testing.T) {
 		t.Errorf("Token frequency not updated in struct. Expected 2, got %d", group7.Logs[0].Tokens[2].Frequency)
 	}
 }
+func TestGroupByLCP(t *testing.T) {
+	// Szenario: 4 Logs.
+	// Wir wählen die Daten so, dass "User" und "login" dieselbe Frequenz haben (2),
+	// damit sie ein gemeinsames LCP bilden.
+	rawLogs := []string{
+		"User 100 login",      // Freqs: User(2), 100(1), login(2) -> LCP: {User, login}
+		"User 101 login",      // Freqs: User(2), 101(1), login(2) -> LCP: {User, login}
+		"System failure disk", // Freqs: Alle 1 -> LCP: {System, failure, disk}
+		"Other 102 logout",    // ÄNDERUNG: "Other" statt "User", damit "User" Freq 2 bleibt (gleich wie "login")
+	}
+
+	lp, _ := NewLogParser([]string{`\d+`}) // Zahlen maskieren
+	groups := lp.Vectorize(rawLogs)
+
+	// Wir testen die Gruppe mit Länge 3
+	group3, exists := groups[3]
+	if !exists {
+		t.Fatalf("Group 3 missing")
+	}
+
+	// Threshold 0.5 (Standard)
+	initialGroups := group3.GroupByLCP(0.5)
+
+	// Erwartung 1: "User <*> login" (Log 1 und 2)
+	// Da "User" und "login" jetzt beide Freq 2 haben, landen sie im selben Tupel.
+	sig1 := "User <*> login"
+	if g, exists := initialGroups[sig1]; !exists {
+		t.Errorf("Expected group '%s' not found. Found keys: %v", sig1, getInitialGroupKeys(initialGroups))
+	} else {
+		if len(g.Logs) != 2 {
+			t.Errorf("Group '%s' should have 2 logs, has %d", sig1, len(g.Logs))
+		}
+	}
+
+	// Erwartung 2: "System failure disk" (Log 3)
+	sig2 := "System failure disk"
+	if _, exists := initialGroups[sig2]; !exists {
+		t.Errorf("Expected group '%s' not found", sig2)
+	}
+}
+
+// Hilfsfunktion für Fehlermeldungen im Test
+func getInitialGroupKeys(m map[string]*InitialGroup) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
 
 // Hilfsfunktion für Fehlermeldungen
 func getKeys(m map[int]*LogGroup) []int {

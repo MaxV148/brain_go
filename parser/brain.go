@@ -111,3 +111,116 @@ func (lp *LogParser) Vectorize(rawLogs []string) map[int]*LogGroup {
 
 	return groups
 }
+
+// ... (bisheriger Code bleibt unverändert) ...
+
+// InitialGroup repräsentiert eine Gruppe von Logs, die dasselbe LCP (Longest Common Pattern) haben.
+// Das ist das Ergebnis von Schritt 2.
+type InitialGroup struct {
+	Signature     string      // Eindeutige Signatur des Patterns (z.B. "Info <*> Service")
+	Logs          []*LogEntry // Die Logs in dieser Gruppe
+	RootFrequency int         // Die Häufigkeit der Wörter, die dieses Pattern bilden
+}
+
+// GroupByLCP führt Schritt 2 des Brain-Algorithmus aus.
+// Es unterteilt eine LogGroup (Logs gleicher Länge) in initiale Cluster basierend auf dem häufigsten Wortmuster.
+// thresholdPercent (üblicherweise 0.5) filtert Wortkombinationen, die zu selten sind.
+func (lg *LogGroup) GroupByLCP(thresholdPercent float64) map[string]*InitialGroup {
+	initialGroups := make(map[string]*InitialGroup)
+
+	for _, log := range lg.Logs {
+		// 1. Gruppiere Token-Indizes nach ihrer Frequenz
+		// Map: Frequenz -> Liste von Positionen im Log, die diese Frequenz haben
+		freqToIndices := make(map[int][]int)
+		maxFreqInLog := 0
+
+		for i, token := range log.Tokens {
+			f := token.Frequency
+			freqToIndices[f] = append(freqToIndices[f], i)
+			if f > maxFreqInLog {
+				maxFreqInLog = f
+			}
+		}
+
+		// 2. Wähle die "Beste" Wortkombination (Root)
+		// Kriterien gemäß Brain Paper/Code:
+		// a) Frequenz muss über dem Schwellenwert liegen (relativ zum Max im Log).
+		// b) Es muss die längste Kombination sein (meiste Wörter).
+		// c) Bei gleicher Länge gewinnt die höhere Frequenz.
+
+		bestFreq := -1
+		maxWordCount := -1
+		// Threshold berechnen: Wörter müssen oft genug vorkommen
+		threshold := int(float64(maxFreqInLog) * thresholdPercent)
+
+		for f, indices := range freqToIndices {
+			// Filter: Frequenz zu niedrig?
+			if f < threshold {
+				continue
+			}
+
+			count := len(indices)
+
+			// Ist diese Kombination länger als die bisher beste?
+			if count > maxWordCount {
+				maxWordCount = count
+				bestFreq = f
+			} else if count == maxWordCount {
+				// Bei gleicher Länge: Nimm die mit der höheren Frequenz (stabiler)
+				if f > bestFreq {
+					bestFreq = f
+				}
+			}
+		}
+
+		// Fallback: Falls keine Kombination den Threshold erreicht (sehr selten),
+		// nimm einfach die längste verfügbare, unabhängig vom Threshold.
+		if bestFreq == -1 {
+			for f, indices := range freqToIndices {
+				count := len(indices)
+				if count > maxWordCount {
+					maxWordCount = count
+					bestFreq = f
+				} else if count == maxWordCount && f > bestFreq {
+					bestFreq = f
+				}
+			}
+		}
+
+		// 3. Generiere die Signatur (LCP) für diesen Log-Eintrag
+		// Wir erstellen einen String, der das Template repräsentiert.
+		// Konstante (Teil des Roots) -> Wort selbst
+		// Variable (Nicht Teil des Roots) -> "<*>"
+
+		// Set der Indizes, die zum Root gehören, für schnellen Zugriff
+		rootIndices := make(map[int]bool)
+		for _, idx := range freqToIndices[bestFreq] {
+			rootIndices[idx] = true
+		}
+
+		var signatureBuilder strings.Builder
+		for i, token := range log.Tokens {
+			if i > 0 {
+				signatureBuilder.WriteString(" ")
+			}
+			if rootIndices[i] {
+				signatureBuilder.WriteString(token.Content)
+			} else {
+				signatureBuilder.WriteString("<*>")
+			}
+		}
+		signature := signatureBuilder.String()
+
+		// 4. Log in die entsprechende InitialGroup einsortieren
+		if _, exists := initialGroups[signature]; !exists {
+			initialGroups[signature] = &InitialGroup{
+				Signature:     signature,
+				Logs:          []*LogEntry{},
+				RootFrequency: bestFreq,
+			}
+		}
+		initialGroups[signature].Logs = append(initialGroups[signature].Logs, log)
+	}
+
+	return initialGroups
+}
