@@ -65,40 +65,38 @@ func TestGenerateFrequencyVectors(t *testing.T) {
 	logTable := lp.Vectorize(rawLogs)
 	got := lp.GenerateFrequencyVectors(logTable)
 
-	want := []FrequencyVector{
-		{3, "<*>", 0},
-		{2, "info:", 1},
-		{2, "Block", 2},
-		{2, "<*>", 3},
-		{2, "received", 4},
-		{2, "from", 5},
-		{2, "<*>", 6},
-
-		{3, "<*>", 0},
-		{2, "info:", 1},
-		{2, "Block", 2},
-		{2, "<*>", 3},
-		{2, "received", 4},
-		{2, "from", 5},
-		{2, "<*>", 6},
-
-		{3, "<*>", 0},
-		{1, "warn:", 1},
-		{1, "Connection", 2},
-		{1, "refused", 3},
+	want := map[int][]FrequencyVector{
+		0: {
+			{3, "<*>", 0},
+			{2, "info:", 1},
+			{2, "Block", 2},
+			{2, "<*>", 3},
+			{2, "received", 4},
+			{2, "from", 5},
+			{2, "<*>", 6},
+		},
+		1: {
+			{3, "<*>", 0},
+			{2, "info:", 1},
+			{2, "Block", 2},
+			{2, "<*>", 3},
+			{2, "received", 4},
+			{2, "from", 5},
+			{2, "<*>", 6},
+		},
+		2: {
+			{3, "<*>", 0},
+			{1, "warn:", 1},
+			{1, "Connection", 2},
+			{1, "refused", 3},
+		},
 	}
 
-	if len(got) != len(want) {
-		t.Fatalf("length mismatch: got %d, want %d", len(got), len(want))
-	}
-
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("index %d: got (%d, %s, %d), want (%d, %s, %d)",
-				i,
-				got[i].Frequency, got[i].Token, got[i].Column,
-				want[i].Frequency, want[i].Token, want[i].Column,
-			)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("GenerateFrequencyVectors mismatch")
+		for key := range want {
+			t.Errorf("  key %d got:  %v", key, got[key])
+			t.Errorf("  key %d want: %v", key, want[key])
 		}
 	}
 }

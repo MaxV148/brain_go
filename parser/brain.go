@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"fmt"
+	"math"
 	"regexp"
 	"strings"
 )
@@ -8,10 +10,11 @@ import (
 // LogParser hält die Konfiguration für das Parsing.
 type LogParser struct {
 	RegexPatterns []*regexp.Regexp
+	Weight        float64
 }
 
 // NewLogParser initialisiert den Parser mit einer Liste von Regex-Strings.
-func NewLogParser(regexStrings []string) (*LogParser, error) {
+func NewLogParser(regexStrings []string, weight float64) (*LogParser, error) {
 	var patterns []*regexp.Regexp
 	for _, s := range regexStrings {
 		re, err := regexp.Compile(s)
@@ -20,7 +23,7 @@ func NewLogParser(regexStrings []string) (*LogParser, error) {
 		}
 		patterns = append(patterns, re)
 	}
-	return &LogParser{RegexPatterns: patterns}, nil
+	return &LogParser{RegexPatterns: patterns, Weight: weight}, nil
 }
 
 // Preprocess bereinigt eine Log-Zeile, indem Patterns durch <*> ersetzt werden.
@@ -60,7 +63,8 @@ type FrequencyVector struct {
 
 type WordCombination struct {
 	FrequencyVecs []FrequencyVector
-	Length        int
+	Frequency     int
+	LogId         int
 }
 
 // colFreqKey identifies a unique (column, token) pair for frequency counting.
@@ -86,7 +90,7 @@ func (lp *LogParser) Vectorize(rawLogs []string) LogTable {
 	return LogTable{Rows: logLines}
 }
 
-func (lp *LogParser) GenerateFrequencyVectors(logTable LogTable) []FrequencyVector {
+func (lp *LogParser) GenerateFrequencyVectors(logTable LogTable) map[int][]FrequencyVector {
 	freqMap := make(map[colFreqKey]int)
 	totalTokens := 0
 
@@ -97,12 +101,45 @@ func (lp *LogParser) GenerateFrequencyVectors(logTable LogTable) []FrequencyVect
 		}
 	}
 
-	frequencies := make([]FrequencyVector, 0, totalTokens)
-	for _, row := range logTable.Rows {
+	frequencies := make(map[int][]FrequencyVector, len(logTable.Rows))
+	for logNr, row := range logTable.Rows {
 		for _, token := range row.Tokens {
 			freq := freqMap[colFreqKey{column: token.ColumnIdx, content: token.Content}]
-			frequencies = append(frequencies, FrequencyVector{Frequency: freq, Token: token.Content, Column: token.ColumnIdx})
+			frequencies[logNr] = append(frequencies[logNr], FrequencyVector{Frequency: freq, Token: token.Content, Column: token.ColumnIdx})
 		}
 	}
 	return frequencies
+}
+
+func (lp *LogParser) FindWordCombinations(freqVectors map[int][]FrequencyVector) []WordCombination {
+	wordCombinationSet := make(map[int]WordCombination, len(freqVectors))
+	for logId, freqVecs := range freqVectors {
+		maxFreq := 0
+		threshold := 0
+		for _, freqVec := range freqVecs {
+			val, ok := wordCombinationSet[freqVec.Frequency]
+			if val.Frequency > maxFreq {
+				maxFreq = val.Frequency
+				threshold = int(math.Round(lp.Weight * float64(maxFreq)))
+			}
+			if !ok {
+				wordCombinationSet[freqVec.Frequency] = WordCombination{FrequencyVecs: []FrequencyVector{freqVec}, Frequency: freqVec.Frequency, LogId: logId}
+			} else {
+				val.FrequencyVecs = append(val.FrequencyVecs, freqVec)
+				wordCombinationSet[freqVec.Frequency] = val
+			}
+		}
+		for _, wc := range wordCombinationSet {
+			if wc.Frequency < threshold {
+				delete(wordCombinationSet, wc.Frequency)
+			}
+		}
+		for _, wc := range wordCombinationSet {
+			fmt.Printf("%d: %v\n", wc.Frequency, wc.FrequencyVecs)
+		}
+		break
+
+	}
+
+	return nil
 }

@@ -8,6 +8,7 @@ import (
 func main() {
 
 	rawLogs := []string{
+		"proxy.cse.cuhk.edu.hk:5070 open through proxy proxy.cse.cuhk.edu.hk:5070 HTTPS",
 		"blk_101 info: Block 101 received from 10.0.0.1",
 		"blk_102 info: Block 102 received from 10.0.0.2",
 		"blk_103 warn: Connection refused",
@@ -19,12 +20,13 @@ func main() {
 		`\d+`,                // Einzelne Zahlen
 	}
 
-	lp, err := parser.NewLogParser(regexPatterns)
+	lp, err := parser.NewLogParser(regexPatterns, 0.5)
 	if err != nil {
 		log.Fatalf("Failed to create parser: %v", err)
 	}
 
 	tbl := lp.Vectorize(rawLogs)
-	lp.GenerateFrequencyVectors(tbl)
+	frq := lp.GenerateFrequencyVectors(tbl)
+	lp.FindWordCombinations(frq)
 
 }
